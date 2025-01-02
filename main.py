@@ -160,18 +160,32 @@ try:
         return scaler.inverse_transform(future_predictions.reshape(-1, 1))
 
     def prophet_predict(df, forecast_days):
-        df_prophet = pd.DataFrame({
-            'ds': df.index,
-            'y': df['Close']
-        })
-        
-        model = Prophet(daily_seasonality=True)
-        model.fit(df_prophet)
-        
-        future_dates = model.make_future_dataframe(periods=forecast_days)
-        forecast = model.predict(future_dates)
-        
-        return forecast.tail(forecast_days)[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
+        try:
+            # Prophet 데이터 준비
+            df_prophet = pd.DataFrame()
+            df_prophet['ds'] = df.index.strftime('%Y-%m-%d')  # 문자열로 변환
+            df_prophet['y'] = df['Close'].values
+            
+            # Prophet 모델 설정 및 학습
+            model = Prophet(
+                daily_seasonality=True,
+                weekly_seasonality=True,
+                yearly_seasonality=True,
+                changepoint_prior_scale=0.05,
+                interval_width=0.95
+            )
+            model.fit(df_prophet)
+            
+            # 미래 날짜 생성
+            future_dates = model.make_future_dataframe(periods=forecast_days)
+            
+            # 예측 수행
+            forecast = model.predict(future_dates)
+            return forecast.tail(forecast_days)[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
+            
+        except Exception as e:
+            st.error(f"Prophet 모델 예측 중 오류 발생: {str(e)}")
+            return None
 
     def calculate_investment_metrics(df):
         returns = df['Close'].pct_change()
@@ -218,8 +232,18 @@ try:
                 )
             else:  # Prophet
                 forecast = prophet_predict(df, forecast_days)
-                predictions = forecast['yhat'].values.reshape(-1, 1)
-                future_dates = forecast['ds'].values
+                if forecast is not None:
+                    predictions = forecast['yhat'].values.reshape(-1, 1)
+                    future_dates = pd.to_datetime(forecast['ds'].values)
+                else:
+                    # Prophet 실패 시 Linear Regression으로 폴백
+                    st.warning("Prophet 모델 실패로 Linear Regression으로 대체합니다.")
+                    predictions = linear_regression_predict(scaled_data, forecast_days, scaler)
+                    future_dates = pd.date_range(
+                        start=df.index[-1] + timedelta(days=1),
+                        periods=forecast_days,
+                        freq='D'
+                    )
             
             fig = go.Figure()
             
