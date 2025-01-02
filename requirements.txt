@@ -2,4 +2,4 @@ yahoo-finance
 tensorflow
 prophet
 plotly
-sklearn
+scikit-learn
