@@ -40,14 +40,55 @@ def get_korean_stocks():
     
     return stocks_df
 
-# 주식 데이터 검색 함수
+# 주식 데이터 검색 함수 (자동완성 강화 버전)
 def search_stocks(search_text, stocks_df):
-    if search_text:
-        return stocks_df[
-            (stocks_df['회사명'].str.contains(search_text, case=False)) |
-            (stocks_df['종목코드'].str.contains(search_text))
-        ]
-    return stocks_df
+    if not search_text:
+        return stocks_df
+    
+    # 초성 변환 함수
+    def get_chosung(text):
+        chosung_list = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ']
+        code_list = [ord(ch) - ord('가') for ch in text]
+        cho_list = []
+        for code in code_list:
+            if 0 <= code <= 11171:  # 한글 범위
+                cho_list.append(chosung_list[code // 588])
+            else:
+                cho_list.append(ch)
+        return ''.join(cho_list)
+    
+    # 검색어 처리
+    search_text = search_text.upper()
+    search_chosung = get_chosung(search_text)
+    
+    # 검색 조건
+    conditions = (
+        # 회사명에 검색어가 포함된 경우 (대소문자 구분 없음)
+        stocks_df['회사명'].str.contains(search_text, case=False) |
+        # 종목코드에 검색어가 포함된 경우
+        stocks_df['종목코드'].str.contains(search_text) |
+        # 회사명의 초성이 검색어와 일치하는 경우
+        stocks_df['회사명'].apply(lambda x: get_chosung(x)).str.contains(search_chosung) |
+        # 영문 회사명에 검색어가 포함된 경우
+        stocks_df['영문명'].str.contains(search_text, case=False)
+    )
+    
+    # 정확도에 따른 가중치 부여
+    matches = stocks_df[conditions].copy()
+    if not matches.empty:
+        matches['정확도'] = 0
+        # 정확한 종목코드 일치
+        matches.loc[matches['종목코드'] == search_text, '정확도'] += 100
+        # 회사명 시작 부분 일치
+        matches.loc[matches['회사명'].str.startswith(search_text, na=False), '정확도'] += 50
+        # 부분 일치
+        matches.loc[matches['회사명'].str.contains(search_text, case=False, na=False), '정확도'] += 30
+        # 초성 일치
+        matches.loc[matches['회사명'].apply(lambda x: get_chosung(x)).str.startswith(search_chosung, na=False), '정확도'] += 20
+        
+        return matches.sort_values('정확도', ascending=False)
+    
+    return matches
 
 try:
     stocks_df = get_korean_stocks()
